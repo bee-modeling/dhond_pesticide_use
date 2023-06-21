@@ -1,0 +1,723 @@
+---
+title: "test pesticide data"
+author: "Alex Dhond"
+date: "12/15/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script loads USGS agricultural pesticide use data that was downloaded from USGS, which includes both high estimate and low estimates.
+
+# Set working directory
+```{r}
+# Set working directory to file location
+setwd("C:/Users/adhond/OneDrive - Environmental Protection Agency (EPA)/Profile/Desktop/Tom Purucker Work/Pesticide")
+```
+
+# Clear existing workspace
+```{r}
+# Clear existing workspace
+rm(list=ls())
+```
+
+# Load required packages
+```{r}
+library(dplyr) # Used for data manipulation
+library(tidyr) # data manipulation
+library(data.table) # Used for creating data tables
+library(ggplot2) # for plotting
+library(readxl) # read in excel sheets
+library(tidyverse) # data manipulation
+library(openxlsx) # for excel sheet creation
+library(grid) # extra plotting tools
+library(gridExtra) # extra plotting tools
+library(cowplot)# extra plotting tools
+library(ggpubr) # extra plotting tools
+```
+
+# Load in the source data (both high and low estimate)
+Load in pesticide data from the TXT files
+```{r}
+# Read in the high estimate pesticide data
+high.estimate <- read.table("HighEstimate_AgPestUsebyCropGroup92to19.txt", sep = "\t", header = T)
+
+# Read in the low estimate pesticide data
+low.estimate <- read.table("LowEstimate_AgPestUsebyCropGroup92to19.txt", sep = "\t", header = T)
+```
+
+### HIGH ESTIMATE ###
+Here, I am going to calculate a few different things. I want to sum the total amount of compound applied for each year, then sum all of the years combined, and then sum across all states and and years to get the total amount of chemical applied across the entire period.
+```{r}
+# First group by compound and state and sum across all crops
+high.estimate <- high.estimate %>%
+  replace(is.na(.), 0) %>% # replace NAs with 0
+  group_by(State) %>% # group by state
+  group_by(Compound) %>% # group by chemical/compound
+  mutate( # add a new column that sums across all the crop columns
+    Total.Applied.By.Year = rowSums(across(c(Corn, Soybeans, Wheat, Cotton, 
+                                             Vegetables_and_fruit, Rice, 
+                                             Orchards_and_grapes, Alfalfa, 
+                                             Pasture_and_hay, Other_crops)))) %>%
+  ungroup() %>% #ungroup 
+  group_by(State, Compound) %>% # regroup to take the total applied by year into account
+  mutate( # sum the total applied by year to all years
+    Total.Applied.All.Years = sum(Total.Applied.By.Year))
+
+# Now calculate the total across all states and all years
+high.estimate <- high.estimate %>%
+  group_by(Compound) %>% # group by compound
+  mutate( # sum the total applied across all years for each state
+    Total.Across.All.State.And.Year = sum(Total.Applied.All.Years))
+
+# Select only compound and get a summary 
+high.est.summ <- high.estimate %>%
+  select(Compound, Total.Across.All.State.And.Year) %>%
+  unique() %>%
+  arrange(desc(Total.Across.All.State.And.Year))
+
+```
+
+# Now convert to long data for use in plotting
+This code is helpful for creating plots in R as it converts the crop and application amount data to long data.
+```{r}
+# Switch the data to long data
+high.est.long.data <- high.estimate %>%
+  select(
+    Compound, State, Year, Corn, Soybeans, Wheat, Cotton, Vegetables_and_fruit, Rice, Orchards_and_grapes, Alfalfa, Pasture_and_hay, Other_crops) %>%
+  pivot_longer(
+    cols = c("Corn", "Soybeans", "Wheat", "Cotton", "Vegetables_and_fruit", "Rice", "Orchards_and_grapes", "Alfalfa", "Pasture_and_hay", "Other_crops"), 
+    names_to = "Crop_Type",
+    values_to = "Amount_Applied"
+  )
+```
+
+### Extract the data to different Excel sheets
+High estimate. Extract the high estimate full sheet as well as just the list of chemicals and total application rates over the period
+```{r}
+# Create an empty Excel file
+high.est.workbook <- createWorkbook()
+	
+# Add in empty sheet for the raw data (with added summarized columns)
+addWorksheet(high.est.workbook, "high.est.raw.data")
+
+# Add in empty sheet for just the total overall application amounts for entire period and entire USA
+addWorksheet(high.est.workbook, "summary.data")
+
+# Now add in the data for the first sheet
+writeData(high.est.workbook, "high.est.raw.data", high.estimate)
+
+# Add in data for second sheet
+writeData(high.est.workbook, "summary.data", high.est.summ)
+
+# Finally save the workbook
+saveWorkbook(high.est.workbook,
+             file = "HighEstAgPestUse_92_19_Summary.xlsx",
+             overwrite = TRUE)
+```
+
+
+### LOW ESTIMATE ###
+Here, I am going to calculate a few different things. I want to sum the total amount of compound applied for each year, then sum all of the years combined, and then sum across all states and and years to get the total amount of chemical applied across the entire period.
+```{r}
+# First group by compound and state and sum across all crops
+low.estimate <- low.estimate %>%
+  replace(is.na(.), 0) %>% # replace NAs with 0
+  group_by(State) %>% # group by state
+  group_by(Compound) %>% # group by chemical/compound
+  mutate( # add a new column that sums across all the crop columns
+    Total.Applied.By.Year = rowSums(across(c(Corn, Soybeans, Wheat, Cotton, 
+                                             Vegetables_and_fruit, Rice, 
+                                             Orchards_and_grapes, Alfalfa, 
+                                             Pasture_and_hay, Other_crops)))) %>%
+  ungroup() %>% #ungroup 
+  group_by(State, Compound) %>% # regroup to take the total applied by year into account
+  mutate( # sum the total applied by year to all years
+    Total.Applied.All.Years = sum(Total.Applied.By.Year))
+
+# Now calculate the total across all states and all years
+low.estimate <- low.estimate %>%
+  group_by(Compound) %>% # group by compound
+  mutate( # sum the total applied across all years for each state
+    Total.Across.All.State.And.Year = sum(Total.Applied.All.Years))
+
+# Select only compound and get a summary 
+low.est.summ <- low.estimate %>%
+  select(Compound, Total.Across.All.State.And.Year) %>%
+  unique() %>%
+  arrange(desc(Total.Across.All.State.And.Year))
+
+```
+
+# Now convert to long data for use in plotting
+This code is helpful for creating plots in R as it converts the crop and application amount data to long data.
+```{r}
+# Switch the data to long data
+low.est.long.data <- low.estimate %>%
+  select(
+    Compound, State, Year, Corn, Soybeans, Wheat, Cotton, Vegetables_and_fruit, Rice, Orchards_and_grapes, Alfalfa, Pasture_and_hay, Other_crops) %>%
+  pivot_longer(
+    cols = c("Corn", "Soybeans", "Wheat", "Cotton", "Vegetables_and_fruit", "Rice", "Orchards_and_grapes", "Alfalfa", "Pasture_and_hay", "Other_crops"), 
+    names_to = "Crop_Type",
+    values_to = "Amount_Applied"
+  )
+```
+
+### Extract the data to different Excel sheets
+low estimate. Extract the high estimate full sheet as well as just the list of chemicals and total application rates over the period
+```{r}
+
+# Create an empty Excel file
+low.est.workbook <- createWorkbook()
+	
+# Add in empty sheet for the raw data (with added summarized columns)
+addWorksheet(low.est.workbook, "low.est.raw.data")
+
+# Add in empty sheet for just the total overall application amounts for entire period and entire USA
+addWorksheet(low.est.workbook, "summary.data")
+
+# Now add in the data for the first sheet
+writeData(low.est.workbook, "low.est.raw.data", low.estimate)
+
+# Add in data for second sheet
+writeData(low.est.workbook, "summary.data", low.est.summ)
+
+# Finally save the workbook
+saveWorkbook(low.est.workbook,
+             file = "LowEstAgPestUse_92_19_Summary.xlsx",
+             overwrite = TRUE)
+```
+
+
+### PRELIMINARY PLOT ###
+If I had more time I would have made plots for all chemicals, but given that time is limited I have tried here to develop the base code for plotting single chemicals
+
+# First set up the data to be long data for plotting
+```{r}
+# Filter by a single chemical - example: glyphosate
+glyphosate.data <- high.estimate %>%
+  filter(
+    Compound == "GLYPHOSATE"
+  )
+
+# Switch the data to long data
+gly.long.data <- glyphosate.data %>%
+  select(
+    Compound, State, Year, Corn, Soybeans, Wheat, Cotton, Vegetables_and_fruit, Rice, Orchards_and_grapes, Alfalfa, Pasture_and_hay, Other_crops) %>%
+  pivot_longer(
+    cols = c("Corn", "Soybeans", "Wheat", "Cotton", "Vegetables_and_fruit", "Rice", "Orchards_and_grapes", "Alfalfa", "Pasture_and_hay", "Other_crops"), 
+    names_to = "Crop_Type",
+    values_to = "Amount_Applied"
+  )
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+# set up crop type as factor
+gly.long.data$Crop_Type <- as.factor(gly.long.data$Crop_Type)
+
+# set up year as a factor
+gly.long.data$Year <- as.factor(gly.long.data$Year)
+
+```
+
+# Plot the data
+```{r}
+# Set up color palette
+cbPalette <- c("#000000", "#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#9999CC")
+
+
+# Now create a test plot
+test.plot <- ggplot(gly.long.data, aes(x = Year, y = Amount_Applied, fill = Crop_Type))+
+ geom_bar(stat = "identity")+
+  theme_bw()+ # black and white theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+ # rotate x axis labels 45 degrees for reading
+  xlab("Year")+
+  ylab("Amount Applied (kg)")+
+  scale_fill_manual(values=cbPalette)+
+  ggtitle("Glyphosate application across all states and years (high est)") # add title
+
+test.plot
+
+```
+
+
+# save the plot
+```{r}
+# open an empty file
+tiff("glyphosate_high_Est.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+test.plot # put in the  plot
+dev.off() # close graphics so it saves
+```
+
+
+### TRIBAL SCIENCE COUNCIL POLLINATOR PLOT UPDATES ###
+This section will update the figures from the tribal science council presentation. I will use the high estimate data.
+
+# Set up the data
+Convert units to Pounds, and then convert to millions of pounds. Also load in color palette for plotting, and set year and crop type as a factors.
+```{r}
+# Convert units to pounds by making a new column with pounds
+high.est.long.data <- high.est.long.data %>%
+  mutate(
+    Amount_Applied_Pounds = Amount_Applied*2.20462)
+
+# Now make a new column with amount applied in millions of pounds
+high.est.long.data <- high.est.long.data %>%
+  mutate(
+    Amount_Applied_Million_Lbs = Amount_Applied_Pounds/1000000)
+
+# Load in color palette for plotting
+cbPalette <- c("#000000", "#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#9999CC")
+
+# Set crop type as factor
+high.est.long.data$Crop_Type <- as.factor(high.est.long.data$Crop_Type)
+
+# Set year as factor
+high.est.long.data$Year <- as.factor(high.est.long.data$Year)
+```
+
+# Set up legend plot
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+legend.plot <- high.est.long.data %>%
+  filter(Compound == "IMIDACLOPRID") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 2.5), breaks = (c(0, 0.5, 1, 1.5, 2, 2.5)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Imidacloprid)") # add title
+legend.plot
+```
+
+# Before moving on, export the legend as a separate plot
+This will be helpful for putting on a slide as just the legend
+```{r}
+# Export the figure legend and save as a ggplot object
+crop.type.legend1 <- cowplot::get_legend(legend.plot)
+
+# Save as ggplot object
+crop.type.legend2 <- as_ggplot(crop.type.legend1)
+
+crop.type.legend2
+```
+
+# Plot 1: Imidacloprid
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+imidacloprid <- high.est.long.data %>%
+  filter(Compound == "IMIDACLOPRID") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 2.5), breaks = (c(0, 0.5, 1, 1.5, 2, 2.5)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Imidacloprid)") # add title
+imidacloprid
+```
+
+Now we can move on to the other plots
+
+# Plot 2: Clothianidin
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+clothianidin <- high.est.long.data %>%
+  filter(Compound == "CLOTHIANIDIN") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 4), breaks = (c(0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Clothianidin)") # add title
+clothianidin 
+```
+
+
+# Plot 3: Thiamethoxam
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+thiamethoxam <- high.est.long.data %>%
+  filter(Compound == "THIAMETHOXAM") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 1.6), breaks = (c(0, 0.2, 0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Thiamethoxam)") # add title
+thiamethoxam 
+```
+
+# Plot 4: Parathion
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+parathion <- high.est.long.data %>%
+  filter(Compound == "PARATHION") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 8), breaks = (c(0, 1, 2, 3, 4, 5, 6, 7, 8)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Parathion)") # add title
+parathion 
+```
+
+# Plot 5: Malathion
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+malathion <- high.est.long.data %>%
+  filter(Compound == "MALATHION") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+ scale_y_continuous(expand = c(0, 0), limits = c(0, 8), breaks = (c(0, 1, 2, 3, 4, 5, 6, 7, 8)))+ # add in manual scale breaks  
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Malathion)") # add title
+malathion 
+```
+
+# Plot 6: Chlorpyrifos
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+chlorpyrifos <- high.est.long.data %>%
+  filter(Compound == "CHLORPYRIFOS") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 20), breaks = (c(0, 5, 10, 15, 20)))+ # add in manual scale breaks  
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Chlorpyrifos)") # add title
+chlorpyrifos 
+```
+
+# Plot 7: Diazinon
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+diazinon <- high.est.long.data %>%
+  filter(Compound == "DIAZINON") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 3.5), breaks = (c(0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Diazinon)") # add title
+diazinon 
+```
+
+# Plot 8: Methyl Parathion
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+methyl.parathion <- high.est.long.data %>%
+  filter(Compound == "METHYL PARATHION") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 6), breaks = (c(0, 1, 2, 3, 4, 5, 6)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Methyl Parathion)") # add title
+methyl.parathion 
+```
+
+# Plot 9: Carbaryl
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+carbaryl <- high.est.long.data %>%
+  filter(Compound == "CARBARYL") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 8), breaks = (c(0, 1, 2, 3, 4, 5, 6, 7, 8)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Carbaryl)") # add title
+carbaryl 
+```
+
+# Plot 10: Aldicarb
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+aldicarb <- high.est.long.data %>%
+  filter(Compound == "ALDICARB") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 6), breaks = (c(0, 1, 2, 3, 4, 5, 6)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Aldicarb)") # add title
+aldicarb 
+```
+
+# Plot 11: Carbofuran
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+carbofuran <- high.est.long.data %>%
+  filter(Compound == "CARBOFURAN") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 7), breaks = (c(0, 1, 2, 3, 4, 5, 6, 7)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Carbofuran)") # add title
+carbofuran 
+```
+
+# Plot 12: Methomyl
+```{r}
+# Developing the plot (feel free to change any of the characteristics)
+methomyl <- high.est.long.data %>%
+  filter(Compound == "METHOMYL") %>% # filter by the chemical of interest
+  ggplot(., aes(x = Year, y = Amount_Applied_Million_Lbs, fill = Crop_Type))+ # set year as x axis and set amount applied as y axis, and fill with crop type
+  geom_bar(stat = "identity")+ # needed to make a bar graph
+  theme_bw()+ # set theme to black and white
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), # rotate Year labels 45 degrees for easier reading
+        panel.border = element_rect(colour = "black", fill=NA), # add a border around the plot
+        panel.grid.major.x = element_blank(), # get rid of unnecessary panel lines (keep only y axis ones)
+        axis.title.x = element_blank(), # get rid of x axis title 
+        plot.title = element_text(hjust = 0.5, size = 15, color = "black"), # move plot title to center of plot, increase size and make color black
+        axis.text.x.bottom = element_text(color = "black", size = 10), # set year text color to black
+        axis.text.y = element_text(color = "black", size = 10), # set axis text to black and 10pt
+        legend.position = "none",
+        axis.title.y = element_text(color = "black", size = 12, margin=margin(r=12)))+ # set y axis title text to black and size 12, move to left slightly
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 4), breaks = (c(0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4)))+ # add in manual scale breaks 
+  ylab("Estimated use in million pounds")+ # y axis title
+  scale_fill_manual(values=cbPalette, name = "Crop Type", labels = c("Alfalfa", "Corn", "Cotton", "Orchards and grapes", "Other crops", "Pasture and hay", "Rice", "Soybeans", "Vegetables and fruit", "Wheat"))+ # add custom colors, add labels without the underscore
+  scale_x_discrete(drop = FALSE)+ # dont drop missing data
+  ggtitle("Use by Year and Crop (Methomyl)") # add title
+methomyl 
+```
+
+# Save all the plots
+This section will individually save the plots as high resolution images
+
+# Plot 1: Imidacloprid
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Imidacloprid_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+imidacloprid # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 2: Clothianidin
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Clothianidin_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+clothianidin # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 3: Thiamethoxam
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Thiamethoxam_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+thiamethoxam # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 4: Parathion
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Parathion_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+parathion # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 5: Malathion
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Malathion_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+malathion # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 6: Methyl parathion
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Methyl_parathion_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+methyl.parathion # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 7: Chlorpyrifos
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Chlorpyrifos_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+chlorpyrifos # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 8: Diazinon
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Diazinon_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+diazinon # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 9: Carbaryl
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Carbaryl_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+carbaryl # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 10: Aldicarb
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Aldicarb_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+aldicarb # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 11: Carbofuran
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Carbofuran_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+carbofuran # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# Plot 12: Methomyl
+```{r}
+# save results plot for manuscript as a tiff file
+tiff("Methomyl_Pest_High_9219_prelim.tiff", units = "in", width = 7.5, height = 7, res = 300) # load an empty tiff file with these dimensions
+methomyl # put in the final results plot
+dev.off() # close graphics so it saves
+```
+
+# plot 13 legend plot
+```{r}
+tiff("legend_plot.tiff", units = "in", width = 7.5, height = 7, res = 300)
+crop.type.legend2
+dev.off()
+```
+
